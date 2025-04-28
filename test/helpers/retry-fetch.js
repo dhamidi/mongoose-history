@@ -1,4 +1,4 @@
-"use strict";
+'use strict'
 
 /**
  * Helper to fetch a document with retries if not found
@@ -9,22 +9,22 @@
  * @returns {Promise<any>} - The fetched document
  */
 async function retryFetch(fetchFn, options = {}) {
-  const maxRetries = options.maxRetries || 3;
-  const delay = options.delay || 25;
-  
-  let retries = 0;
-  let result = await fetchFn();
-  
+  const maxRetries = options.maxRetries || 3
+  const delay = options.delay || 25
+
+  let retries = 0
+  let result = await fetchFn()
+
   while (!result && retries < maxRetries) {
     // Wait for the specified delay
-    await new Promise(resolve => setTimeout(resolve, delay));
-    
+    await new Promise(resolve => setTimeout(resolve, delay))
+
     // Try fetching again
-    result = await fetchFn();
-    retries++;
+    result = await fetchFn()
+    retries++
   }
-  
-  return result;
+
+  return result
 }
 
-module.exports = retryFetch;
+module.exports = retryFetch
