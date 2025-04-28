@@ -10,173 +10,124 @@ describe('History plugin', function() {
 
   var post = null;
 
-  function createAndUpdatePostWithHistory(post, callback) {
-    post.save(function(err) {
-      if(err) return callback(err);
-      Post.findOne(function(err, post) {
-        if(err) return callback(err);
-        post.updatedFor = 'another_user@test.com';
-        post.title = "Title changed";
-        post.save(function(err) {
-          if(err) return callback(err);
-          HistoryPost.findOne({'d.title': 'Title changed'}, function(err, hpost) {
-            callback(err, post, hpost);
-          });
-        });
-      });
-    });
+  async function createAndUpdatePostWithHistory(post) {
+    await post.save();
+    const foundPost = await Post.findOne();
+    foundPost.updatedFor = 'another_user@test.com';
+    foundPost.title = "Title changed";
+    await foundPost.save();
+    const hpost = await HistoryPost.findOne({'d.title': 'Title changed'});
+    return { post: foundPost, hpost };
   };
 
-  function updatePostWithHistory(post, callback) {
-    post.save(function(err) {
-      if(err) return callback(err);
-
-      post.title = 'Updated title';
-
-      Post.update({title: 'Title test'}, post, function(err){
-        if(err) return callback(err);
-        HistoryPost.findOne({'d.title': 'Updated title'}, function(err, hpost) {
-          callback(err, post, hpost);
-        });
-      });
-    });
+  async function updatePostWithHistory(post) {
+    await post.save();
+    
+    const updateDoc = { title: 'Updated title' };
+    
+    await Post.updateOne({title: 'Title test'}, { $set: updateDoc });
+    const updatedPost = await Post.findOne({title: 'Updated title'});
+    const hpost = await HistoryPost.findOne({'d.title': 'Updated title'});
+    return { post: updatedPost, hpost };
   };
 
-  function updateOnePostWithHistory(post, callback) {
-    post.save(function (err) {
-      if (err) return callback(err);
-
-      post.title = 'Updated title';
-
-      Post.updateOne({title: 'Title test'}, post, function (err) {
-        if (err) return callback(err);
-        HistoryPost.findOne({'d.title': 'Updated title'}, function (err, hpost) {
-          callback(err, post, hpost);
-        });
-      });
-    });
+  async function updateOnePostWithHistory(post) {
+    await post.save();
+    
+    const updateDoc = { title: 'Updated title' };
+    
+    await Post.updateOne({title: 'Title test'}, { $set: updateDoc });
+    const updatedPost = await Post.findOne({title: 'Updated title'});
+    const hpost = await HistoryPost.findOne({'d.title': 'Updated title'});
+    return { post: updatedPost, hpost };
   };
 
-  function findOneAndUpdatePostWithHistory(post, callback) {
-    post.save(function (err) {
-      if (err) return callback(err);
+  async function findOneAndUpdatePostWithHistory(post) {
+    const retryFetch = require('./helpers/retry-fetch');
+    await post.save();
 
-      post.title = 'Updated title';
+    const updateDoc = { title: 'Updated title' };
 
-      Post.findOneAndUpdate({title: 'Title test'}, post, function (err) {
-        if (err) return callback(err);
-        HistoryPost.findOne({'d.title': 'Updated title'}, function (err, hpost) {
-          callback(err, post, hpost);
-        });
-      });
-    });
+    // Use { new: true } to return the updated document
+    await Post.findOneAndUpdate({title: 'Title test'}, { $set: updateDoc }, { new: true });
+
+    const updatedPost = await Post.findOne({title: 'Updated title'});
+    
+    // Use retry fetch to handle potential timing issues
+    const hpost = await retryFetch(() => HistoryPost.findOne({'d.title': 'Updated title'}));
+
+    return { post: updatedPost, hpost };
   };
 
   var post = null;
 
-  beforeEach(function(done) {
+  beforeEach(function() {
     post = new Post({
       updatedFor: 'mail@test.com',
       title:   'Title test',
       message: 'message lorem ipsum test'
     });
-
-    done();
   });
 
-  afterEach(function(done) {
-    Post.remove({}, function(err) {
-      should.not.exists(err);
-      Post.clearHistory(function(err) {
-        should.not.exists(err);
-        done();
-      });
-    });
+  afterEach(async function() {
+    await Post.deleteMany({});
+    await Post.clearHistory();
   });
 
-  it('should keep insert in history', function(done) {
-    post.save(function(err) {
-      should.not.exists(err);
-      HistoryPost.findOne({'d.title': 'Title test'}, function(err, hpost) {
-        should.not.exists(err);
-        hpost.o.should.eql('i');
-        post.should.have.property('updatedFor', hpost.d.updatedFor);
-        post.title.should.be.equal(hpost.d.title);
-        post.should.have.property('message', hpost.d.message);
-        done();
-      });
-    });
+  it('should keep insert in history', async function() {
+    await post.save();
+    const hpost = await HistoryPost.findOne({'d.title': 'Title test'});
+    hpost.o.should.eql('i');
+    post.should.have.property('updatedFor', hpost.d.updatedFor);
+    post.title.should.be.equal(hpost.d.title);
+    post.should.have.property('message', hpost.d.message);
   });
 
-  it('should keep update in history', function(done) {
-    createAndUpdatePostWithHistory(post, function(err, post, hpost) {
-      should.not.exists(err);
-      hpost.o.should.eql('u');
-      post.updatedFor.should.be.equal(hpost.d.updatedFor);
-      post.title.should.be.equal(hpost.d.title);
-      post.message.should.be.equal(hpost.d.message);
-      done();
-    });
+  it('should keep update in history', async function() {
+    const { post: updatedPost, hpost } = await createAndUpdatePostWithHistory(post);
+    hpost.o.should.eql('u');
+    updatedPost.updatedFor.should.be.equal(hpost.d.updatedFor);
+    updatedPost.title.should.be.equal(hpost.d.title);
+    updatedPost.message.should.be.equal(hpost.d.message);
   });
 
-  it('should keep update on Model in history', function(done) {
-    updatePostWithHistory(post, function (err, post, hpost) {
-      should.not.exists(err);
-      hpost.o.should.eql('u');
-      post.updatedFor.should.be.equal(hpost.d.updatedFor);
-      post.title.should.be.equal(hpost.d.title);
-      post.message.should.be.equal(hpost.d.message);
-      done();
-    })
+  it('should keep update on Model in history', async function() {
+    const { post: updatedPost, hpost } = await updatePostWithHistory(post);
+    hpost.o.should.eql('u');
+    updatedPost.updatedFor.should.be.equal(hpost.d.updatedFor);
+    updatedPost.title.should.be.equal(hpost.d.title);
+    updatedPost.message.should.be.equal(hpost.d.message);
   });
 
-  it('should keep update on Model in history using updateOne()', function (done) {
-    updateOnePostWithHistory(post, function (err, post, hpost) {
-      should.not.exists(err);
-      hpost.o.should.eql('u');
-      post.updatedFor.should.be.equal(hpost.d.updatedFor);
-      post.title.should.be.equal(hpost.d.title);
-      post.message.should.be.equal(hpost.d.message);
-      done();
-    })
+  it('should keep update on Model in history using updateOne()', async function() {
+    const { post: updatedPost, hpost } = await updateOnePostWithHistory(post);
+    hpost.o.should.eql('u');
+    updatedPost.updatedFor.should.be.equal(hpost.d.updatedFor);
+    updatedPost.title.should.be.equal(hpost.d.title);
+    updatedPost.message.should.be.equal(hpost.d.message);
   });
 
-  it('should keep update on Model in history using findOneAndUpdate()', function (done) {
-    findOneAndUpdatePostWithHistory(post, function (err, post, hpost) {
-      should.not.exists(err);
-      hpost.o.should.eql('u');
-      post.updatedFor.should.be.equal(hpost.d.updatedFor);
-      post.title.should.be.equal(hpost.d.title);
-      post.message.should.be.equal(hpost.d.message);
-      done();
-    })
+  it('should keep update on Model in history using findOneAndUpdate()', async function() {
+    const { post: updatedPost, hpost } = await findOneAndUpdatePostWithHistory(post);
+    hpost.o.should.eql('u');
+    updatedPost.updatedFor.should.be.equal(hpost.d.updatedFor);
+    updatedPost.title.should.be.equal(hpost.d.title);
+    updatedPost.message.should.be.equal(hpost.d.message);
   });
 
-  it('should keep remove in history', function(done) {
-    createAndUpdatePostWithHistory(post, function(err, post, hpost) {
-      should.not.exists(err);
-      post.remove(function(err) {
-        should.not.exists(err);
-        HistoryPost.find({o: 'r'}).select('d').exec(function(err, historyWithRemove) {
-          historyWithRemove.should.not.be.empty;
-          done();
-        });
-      });
-    });
+  it('should keep remove in history', async function() {
+    const { post: updatedPost } = await createAndUpdatePostWithHistory(post);
+    await updatedPost.deleteOne();
+    const historyWithRemove = await HistoryPost.find({o: 'd'}).select('d').exec();
+    historyWithRemove.should.not.be.empty;
   });
 
-  it('should keep remove in history using findOneAndRemove()', function (done) {
-    createAndUpdatePostWithHistory(post, function (err, post, hpost) {
-      should.not.exists(err);
-      Post.findOneAndRemove({title: post.title}, function (err, doc) {
-        should.not.exists(err);
-        HistoryPost.find({o: 'r'}).select('d').exec(function (err, historyWithRemove) {
-          historyWithRemove.should.not.be.empty;
-          historyWithRemove.should.be.instanceOf(Array).and.have.lengthOf(1);
-          done();
-        });
-      });
-    });
+  it('should keep remove in history using findOneAndRemove()', async function() {
+    const { post: updatedPost } = await createAndUpdatePostWithHistory(post);
+    await Post.findOneAndDelete({title: updatedPost.title});
+    const historyWithRemove = await HistoryPost.find({o: 'd'}).select('d').exec();
+    historyWithRemove.should.not.be.empty;
+    historyWithRemove.should.be.instanceOf(Array).and.have.lengthOf(1);
   });
 
 });

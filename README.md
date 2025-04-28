@@ -111,16 +111,60 @@ Custom connection uris can be provided via environment variables for e.g. using 
 CONNECTION_URI='mongodb://username:password@localhost/mongoose-history-test' SECONDARY_CONNECTION_URI='mongodb://username:password@localhost/mongoose-history-test-second' mocha
 ```
 
-### In progress
-* Plugin rewriting.
-* update, findOneAndUpdate, findOneAndRemove support.
+### Mongoose Compatibility
+
+This plugin is compatible with Mongoose 8.x. For older versions of Mongoose, please use earlier versions of this plugin.
+
+### DiffOnly - Track Only Changed Fields
+
+By default, the plugin stores the entire document for each change. If you want to save storage space, you can enable the `diffOnly` option, which only stores the fields that were actually changed during an update:
+
+```javascript
+var options = {diffOnly: true};
+PostSchema.plugin(history, options);
+```
+
+With `diffOnly` enabled, update operations will only store the changed fields and the document's `_id` in the history collection, which can significantly reduce storage requirements for large documents with small changes.
+
+### Custom Diff Algorithm
+
+You can provide your own custom algorithm to determine what differences are stored in the history by setting the `customDiffAlgo` option.
+
+This function receives the key, new value, and old value for each field and should return an object with a `diff` property if the values are considered different:
+
+```javascript
+var options = {
+  diffOnly: true,
+  customDiffAlgo: function(key, newValue, oldValue) {
+    // Simple comparison example
+    if (key === 'tags' && Array.isArray(newValue) && Array.isArray(oldValue)) {
+      // Sort arrays to ensure order doesn't matter
+      const newTags = [...newValue].sort();
+      const oldTags = [...oldValue].sort();
+      if (JSON.stringify(newTags) !== JSON.stringify(oldTags)) {
+        return { diff: newValue }; // Return the new value as the diff
+      }
+      return { diff: undefined }; // No difference
+    }
+    
+    // Default comparison for other fields
+    if (JSON.stringify(newValue) !== JSON.stringify(oldValue)) {
+      return { diff: newValue };
+    }
+    return { diff: undefined };
+  }
+};
+PostSchema.plugin(history, options);
+```
+
+The custom diff algorithm is useful for special fields like arrays where you might want to consider them equal regardless of order.
 
 ## TODO
 * **TTL documents**
 
 ## LICENSE
 
-Copyright (c) 2013-2016, Nassor Paulino da Silva <nassor@gmail.com>
+Copyright (c) 2013-2025, Nassor Paulino da Silva <nassor@gmail.com>
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:

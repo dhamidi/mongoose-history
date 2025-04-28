@@ -10,84 +10,58 @@ describe('History plugin', function() {
 
   var post = null;
 
-  function createAndUpdatePostWithHistory(post, callback) {
-    post.save(function(err) {
-      if(err) return callback(err);
-      Post.findOne(function(err, post) {
-        if(err) return callback(err);
-        post.updatedFor = 'another_user@test.com';
-        post.title = "Title changed";
-        post.save(function(err) {
-          if(err) return callback(err);
-          HistoryPost.findOne({'d.title': 'Title changed'}, function(err, hpost) {
-            callback(err, post, hpost);
-          });
-        });
-      });
-    });
+  async function createAndUpdatePostWithHistory(post) {
+    await post.save();
+    const foundPost = await Post.findOne();
+    foundPost.updatedFor = 'another_user@test.com';
+    foundPost.title = "Title changed";
+    await foundPost.save();
+    const hpost = await HistoryPost.findOne({'d.title': 'Title changed'});
+    return { post: foundPost, hpost };
   };
 
-  var post = null;
+  let postInstance = null;
 
-  beforeEach(function(done) {
-    post = new Post({
+  beforeEach(function() {
+    postInstance = new Post({
       updatedFor: 'mail@test.com',
       title:   'Title test',
       message: 'message lorem ipsum test'
     });
-
-    done();
   });
 
-  afterEach(function(done) {
-    Post.remove({}, function(err) {
-      should.not.exists(err);
-      Post.clearHistory(function(err) {
-        should.not.exists(err);
-        done();
-      });
-    });
+  afterEach(async function() {
+    await Post.deleteMany({});
+    await Post.clearHistory();
   });
 
-  it('should keep insert in history', function(done) {
-    post.save(function(err) {
-      should.not.exists(err);
-      HistoryPost.findOne({'d.title': 'Title test'}, function(err, hpost) {
-        should.not.exists(err);
-        hpost.o.should.eql('i');
-        post.should.have.property('updatedFor', hpost.d.updatedFor);
-        post.title.should.be.equal(hpost.d.title);
-        post.should.have.property('message', hpost.d.message);
-        done();
-      });
-    });
+  it('should keep insert in history', async function() {
+    await postInstance.save();
+    
+    const hpost = await HistoryPost.findOne({'d.title': 'Title test'});
+    should.exist(hpost, 'History post should exist');
+    hpost.o.should.eql('i');
+    postInstance.should.have.property('updatedFor', hpost.d.updatedFor);
+    postInstance.title.should.be.equal(hpost.d.title);
+    postInstance.should.have.property('message', hpost.d.message);
   });
 
-  it('should keep just wath changed in update', function(done) {
-    createAndUpdatePostWithHistory(post, function(err, post, hpost) {
-      should.not.exists(err);
-      hpost.o.should.eql('u');
-      //post.updatedFor.should.be.equal(hpost.d.updatedFor);
-      //post.title.should.be.equal(hpost.d.title);
-      //post.message.should.be.equal(hpost.d.message);
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d._v);
-      //hpost.d.should.not.exist(post.message);
-      //hpost.d.should.not.exist(post._v);
-      done();
-    });
+  it('should keep just wath changed in update', async function() {
+    const { post, hpost } = await createAndUpdatePostWithHistory(postInstance);
+    hpost.o.should.eql('u');
+    //post.updatedFor.should.be.equal(hpost.d.updatedFor);
+    //post.title.should.be.equal(hpost.d.title);
+    //post.message.should.be.equal(hpost.d.message);
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d._v);
+    //hpost.d.should.not.exist(post.message);
+    //hpost.d.should.not.exist(post._v);
   });
 
-  it('should keep remove in history', function(done) {
-    createAndUpdatePostWithHistory(post, function(err, post, hpost) {
-      should.not.exists(err);
-      post.remove(function(err) {
-        should.not.exists(err);
-        HistoryPost.find({o: 'r'}).select('d').exec(function(err, historyWithRemove) {
-          historyWithRemove.should.not.be.empty;
-          done();
-        });
-      });
-    });
+  it('should keep remove in history', async function() {
+    const { post } = await createAndUpdatePostWithHistory(postInstance);
+    await post.deleteOne();
+    const historyWithRemove = await HistoryPost.find({o: 'd'}).select('d').exec();
+    historyWithRemove.should.not.be.empty;
   });
 });

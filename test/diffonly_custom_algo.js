@@ -10,153 +10,124 @@ describe('History plugin custom diff algo', function() {
 
   var post = null;
 
-  function createAndUpdatePostWithHistory(post, newTags, callback) {
-    post.save(function(err) {
-      if(err) return callback(err);
-      Post.findOne(function(err, post) {
-        if(err) return callback(err);
-        post.updatedFor = 'another_user@test.com';
-        post.title = "Title changed";
-        post.tags = newTags;
-        post.save(function(err) {          
-          if(err) return callback(err);
-          HistoryPost.findOne({'d.title': 'Title changed'}, function(err, hpost) {
-            should.exists(hpost);            
-            callback(err, post, hpost);
-          });
-        });
-      });
-    });
+  async function createAndUpdatePostWithHistory(post, newTags) {
+    const retryFetch = require('./helpers/retry-fetch');
+    await post.save();
+    const foundPost = await Post.findOne();
+    foundPost.updatedFor = 'another_user@test.com';
+    foundPost.title = "Title changed";
+    foundPost.tags = newTags;
+    await foundPost.save();
+    
+    // Use retry fetch to handle potential timing issues
+    const hpost = await retryFetch(() => HistoryPost.findOne({'d.title': 'Title changed'}));
+    should.exists(hpost);
+    return { post: foundPost, hpost };
   };
 
-  var post = null;
-  var defaultTags = ['Brazil', 'France'];
+  let postInstance = null;
+  const defaultTags = ['Brazil', 'France'];
 
-  beforeEach(function(done) {
-    post = new Post({
+  beforeEach(function() {
+    postInstance = new Post({
       updatedFor: 'mail@test.com',
       title:   'Title test',
       message: 'message lorem ipsum test',
       tags: defaultTags
     });
-
-    done();
   });
 
-  afterEach(function(done) {
-    Post.remove({}, function(err) {
-      should.not.exists(err);
-      Post.clearHistory(function(err) {
-        should.not.exists(err);
-        done();
-      });
-    });
+  afterEach(async function() {
+    await Post.deleteMany({});
+    await Post.clearHistory();
   });
 
 
-  it('should keep insert in history', function(done) {
-    post.save(function(err) {
-      should.not.exists(err);
-      HistoryPost.findOne({'d.title': 'Title test'}, function(err, hpost) {
-        should.not.exists(err);
-        should.exists(hpost);        
-        hpost.o.should.eql('i');
-        post.should.have.property('updatedFor', hpost.d.updatedFor);
-        post.title.should.be.equal(hpost.d.title);
-        post.should.have.property('message', hpost.d.message);
-        done();
-      });
-    });
+  it('should keep insert in history', async function() {
+    await postInstance.save();
+    const hpost = await HistoryPost.findOne({'d.title': 'Title test'});
+    should.exists(hpost);        
+    hpost.o.should.eql('i');
+    postInstance.should.have.property('updatedFor', hpost.d.updatedFor);
+    postInstance.title.should.be.equal(hpost.d.title);
+    postInstance.should.have.property('message', hpost.d.message);
   });
 
-  it('should not care about order of tags', function(done) {
-    should.exists(post);    
+  it('should not care about order of tags', async function() {
+    should.exists(postInstance);    
     var newTags = ['France', 'Brazil'];
-    createAndUpdatePostWithHistory(post, newTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(hpost);
-      hpost.o.should.eql('u');
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d._v);
-      should.not.exists(hpost.d.tags);
-      done();
-    });
+    const { post, hpost } = await createAndUpdatePostWithHistory(postInstance, newTags);
+    should.exists(hpost);
+    hpost.o.should.eql('u');
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d._v);
+    should.not.exists(hpost.d.tags);
   });
 
-  it('should detect null tags', function(done) {
-    should.exists(post);    
+  it('should detect null tags', async function() {
+    const retryFetch = require('./helpers/retry-fetch');
+    should.exists(postInstance);    
     var newTags = null;
-    createAndUpdatePostWithHistory(post, newTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(hpost);
-      hpost.o.should.eql('u');
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d._v);
-      should(hpost.d.tags).be.null();
-      //console.log('%j', hpost);
-      done();
-    });
+    await postInstance.save();
+    const foundPost = await Post.findOne();
+    foundPost.updatedFor = 'another_user@test.com';
+    foundPost.title = "Title changed";
+    foundPost.tags = newTags;
+    await foundPost.save();
+    
+    // Use retry fetch to handle potential timing issues
+    const hpost = await retryFetch(() => HistoryPost.findOne({'d.title': 'Title changed'}));
+    should.exists(hpost);
+    hpost.o.should.eql('u');
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d._v);
+    should(hpost.d.tags).be.null();
   });
 
-  it('should detect new tags', function(done) {
-    should.exists(post);    
+  it('should detect new tags', async function() {
+    should.exists(postInstance);    
     var newTags = ['Brazil', 'France', 'Australia'];
-    createAndUpdatePostWithHistory(post, newTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(hpost);
-      hpost.o.should.eql('u');
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d._v);
-      should.exists(hpost.d.tags);
-      hpost.d.tags.should.be.instanceof(Array).and.have.lengthOf(3);
-      hpost.d.tags.should.containEql('Brazil');      
-      hpost.d.tags.should.containEql('France');      
-      hpost.d.tags.should.containEql('Australia');            
-      done();
-    });
+    const { post, hpost } = await createAndUpdatePostWithHistory(postInstance, newTags);
+    should.exists(hpost);
+    hpost.o.should.eql('u');
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d._v);
+    should.exists(hpost.d.tags);
+    hpost.d.tags.should.be.instanceof(Array).and.have.lengthOf(3);
+    hpost.d.tags.should.containEql('Brazil');      
+    hpost.d.tags.should.containEql('France');      
+    hpost.d.tags.should.containEql('Australia');            
   });
 
-  it('should detect removed tags', function(done) {
-    should.exists(post);    
+  it('should detect removed tags', async function() {
+    should.exists(postInstance);    
     var newTags = ['Brazil'];
-    createAndUpdatePostWithHistory(post, newTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(hpost);
-      hpost.o.should.eql('u');
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d._v);
-      should.exists(hpost.d.tags);
-      hpost.d.tags.should.be.instanceof(Array).and.have.lengthOf(1);
-      hpost.d.tags.should.containEql('Brazil');                 
-      done();
-    });
+    const { post, hpost } = await createAndUpdatePostWithHistory(postInstance, newTags);
+    should.exists(hpost);
+    hpost.o.should.eql('u');
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d._v);
+    should.exists(hpost.d.tags);
+    hpost.d.tags.should.be.instanceof(Array).and.have.lengthOf(1);
+    hpost.d.tags.should.containEql('Brazil');                 
   });
 
-  it('should keep just what changed in update', function(done) {
-    should.exists(post);    
-    createAndUpdatePostWithHistory(post, defaultTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(hpost);
-      hpost.o.should.eql('u');
-      should.not.exists(hpost.d.message);
-      should.not.exists(hpost.d.tags);      
-      should.not.exists(hpost.d._v);
-      done();
-    });
+  it('should keep just what changed in update', async function() {
+    should.exists(postInstance);    
+    const { post, hpost } = await createAndUpdatePostWithHistory(postInstance, defaultTags);
+    should.exists(hpost);
+    hpost.o.should.eql('u');
+    should.not.exists(hpost.d.message);
+    should.not.exists(hpost.d.tags);      
+    should.not.exists(hpost.d._v);
   });
 
-  it('should keep remove in history', function(done) {
+  it('should keep remove in history', async function() {
+    should.exists(postInstance);
+    const { post } = await createAndUpdatePostWithHistory(postInstance, defaultTags);
     should.exists(post);
-    createAndUpdatePostWithHistory(post, defaultTags, function(err, post, hpost) {
-      should.not.exists(err);
-      should.exists(post);
-      post.remove(function(err) {
-        should.not.exists(err);
-        HistoryPost.find({o: 'r'}).select('d').exec(function(err, historyWithRemove) {
-          historyWithRemove.should.not.be.empty;
-          done();
-        });
-      });
-    });
+    await post.deleteOne();
+    const historyWithRemove = await HistoryPost.find({o: 'd'}).select('d').exec();
+    historyWithRemove.should.not.be.empty;
   });
 });

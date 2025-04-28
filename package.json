@@ -54,12 +54,12 @@
     "url": "https://github.com/nassor/mongoose-history/issues"
   },
   "devDependencies": {
-    "mongoose": "^6",
     "mocha": "2.4.5",
+    "mongoose": "^8",
     "should": "8.2.2"
   },
   "peerDependencies": {
-    "mongoose": "^6"
+    "mongoose": "^8"
   },
   "packageManager": "yarn@1.22.19"
 }
